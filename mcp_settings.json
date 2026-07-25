@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "onepanel": {
+      "type": "streamable-http",
+      "url": "http://onepanel-mcp:8000/mcp"
+    }
+  }
+}

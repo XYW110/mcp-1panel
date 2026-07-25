@@ -1,0 +1,76 @@
+# mcphub + 1Panel MCP server + postgres（smart routing 依赖）
+# 三容器同一 mcp-net bridge network，service 名 DNS 直连
+#
+# 启动：cp .env.example .env && 填好凭证后 docker compose up -d
+# mcphub dashboard: http://localhost:3000
+# 1Panel MCP: http://onepanel-mcp:8000/mcp（仅 mcp-net 内可达，不对宿主机暴露）
+
+services:
+  # ---- MCP 网关：聚合多个 MCP server，提供 dashboard + smart routing ----
+  mcphub:
+    image: samanhappy/mcphub:latest
+    container_name: mcphub
+    ports:
+      - "3000:3000"
+    environment:
+      ADMIN_PASSWORD: ${MCPHUB_ADMIN_PASSWORD:-admin}
+      # 启用 Smart Routing（向量搜索）需要 PostgreSQL + pgvector
+      DB_URL: postgresql://mcphub:${DB_PASSWORD:-mcphub}@postgres:5432/mcphub
+    volumes:
+      - ./mcp_settings.json:/app/mcp_settings.json:ro
+      - mcphub-data:/app/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      onepanel-mcp:
+        condition: service_healthy
+    networks:
+      - mcp-net
+    restart: unless-stopped
+
+  # ---- 1Panel MCP server（本项目）：streamable-http，内网暴露，鉴权交给 mcphub ----
+  onepanel-mcp:
+    build: .
+    container_name: onepanel-mcp
+    environment:
+      # 1Panel 面板连接（用户填 .env）
+      PANEL_ENDPOINT: ${PANEL_ENDPOINT}
+      PANEL_API_KEY: ${PANEL_API_KEY}
+      PANEL_TIMEOUT: ${PANEL_TIMEOUT:-30}
+      PANEL_READONLY: ${PANEL_READONLY:-false}
+      # MCP 传输（streamable-http，容器内必须监听 0.0.0.0）
+      MCP_TRANSPORT: http
+      MCP_HOST: 0.0.0.0
+      MCP_PORT: "8000"
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    # 不对宿主机暴露端口，仅 mcp-net 内由 mcphub 通过 service 名访问
+    networks:
+      - mcp-net
+    restart: unless-stopped
+
+  # ---- PostgreSQL + pgvector：mcphub Smart Routing 语义搜索依赖 ----
+  postgres:
+    image: pgvector/pgvector:pg17
+    container_name: mcphub-postgres
+    environment:
+      POSTGRES_DB: mcphub
+      POSTGRES_USER: mcphub
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-mcphub}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mcphub"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - mcp-net
+    restart: unless-stopped
+
+networks:
+  mcp-net:
+    driver: bridge
+
+volumes:
+  mcphub-data:
+  pgdata:

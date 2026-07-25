@@ -1,0 +1,62 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "mcp-1panel"
+version = "0.1.0"
+description = "Hand-written Python MCP server for 1Panel server management panel (v2 API), 全功能覆盖"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+authors = [{ name = "wgyag" }]
+keywords = ["mcp", "1panel", "server-management", "model-context-protocol"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    # MCP 官方 Python SDK（v1.x 稳定线），用包内 FastMCP
+    "mcp>=1.28,<2.0",
+    # 异步 HTTP 客户端
+    "httpx>=0.28",
+    # 数据模型与校验
+    "pydantic>=2.12",
+    # 环境变量配置
+    "pydantic-settings>=2.5",
+    # streamable-http 传输依赖
+    "uvicorn>=0.31",
+    "starlette>=0.41",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+    "pytest-asyncio>=0.24",
+    "respx>=0.21",     # mock httpx
+    "pytest-cov>=5",
+]
+
+[project.scripts]
+# 三种调用方式：uvx mcp-1panel / python -m mcp_1panel / mcp-1panel
+mcp-1panel = "mcp_1panel.__main__:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/mcp_1panel"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src", "README.md", "references"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"      # async 测试零样板
+testpaths = ["tests"]
+addopts = "-ra"
+
+[tool.ruff]
+line-length = 110
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
