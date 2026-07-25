@@ -35,9 +35,9 @@ ENV PATH="/app/.venv/bin:$PATH" \
     MCP_HOST=0.0.0.0 \
     MCP_PORT=8000
 
-# 健康检查（streamable-http 端点）
-HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
-    CMD python -c "import urllib.request,sys; urllib.request.urlopen('http://127.0.0.1:8000/mcp', timeout=3); sys.exit(0)" || exit 1
+# 健康检查（streamable-http 端点需 POST initialize，GET 会 405）
+HEALTHCHECK --interval=30s --timeout=10s --retries=3 --start-period=15s \
+    CMD python -c "import urllib.request,json;req=urllib.request.Request('http://127.0.0.1:8000/mcp',data=json.dumps({'jsonrpc':'2.0','id':1,'method':'initialize','params':{'protocolVersion':'2024-11-05','capabilities':{},'clientInfo':{'name':'hc','version':'1'}}}).encode(),headers={'Content-Type':'application/json','Accept':'application/json, text/event-stream'});urllib.request.urlopen(req,timeout=5)" || exit 1
 
 EXPOSE 8000
 
