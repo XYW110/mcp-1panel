@@ -9,8 +9,8 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
 WORKDIR /app
 
-# 先拷依赖清单（利用 Docker 层缓存）
-COPY pyproject.toml ./
+# 先拷依赖清单和 README（pyproject.toml 引用了 readme = "README.md"）
+COPY pyproject.toml README.md ./
 COPY src ./src
 
 # 用 uv 创建虚拟环境并装依赖（--frozen 保证可复现）
