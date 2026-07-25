@@ -9,13 +9,30 @@ description 用结构化模板便于 mcphub Smart Routing 向量搜索召回。
 
 from __future__ import annotations
 
+import os
 from collections.abc import Callable
 
 from mcp.server.fastmcp import FastMCP
+from mcp.server.transport_security import TransportSecuritySettings
+
+# host/port/transport 从环境变量读，初始化时传给 FastMCP（run() 不接受这些参数）
+_host = os.getenv("MCP_HOST", "0.0.0.0")
+_port = int(os.getenv("MCP_PORT", "8000"))
+
+# 容器化部署需要放行任意 host（DNS rebinding protection 默认只允许 localhost）
+_allowed_hosts = [f"{_host}:*"] if _host not in ("127.0.0.1", "localhost") else None
+_transport_security = TransportSecuritySettings(
+    enable_dns_rebinding_protection=False,  # 容器内禁用，否则拦截非 localhost 请求
+    allowed_hosts=_allowed_hosts or ["*:*"],
+    allowed_origins=["*"],
+) if _host not in ("127.0.0.1", "localhost") else None
 
 # 创建 server 实例（无 auth —— mcphub 统一处理鉴权）
 mcp: FastMCP = FastMCP(
     "1Panel",
+    host=_host,
+    port=_port,
+    transport_security=_transport_security,
     # instructions 会作为 system prompt 注入，帮助 LLM 理解工具集
     instructions=(
         "1Panel 全功能运维 MCP server。覆盖容器、网站、应用、数据库、文件、"

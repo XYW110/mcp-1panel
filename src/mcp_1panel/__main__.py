@@ -41,21 +41,14 @@ def main() -> None:
     )
     parser.add_argument(
         "--transport",
-        choices=["http", "stdio", "sse"],
-        default=os.getenv("MCP_TRANSPORT", "http"),
-        help="传输方式，默认 http（streamable-http），与 mcphub 对接",
+        choices=["streamable-http", "stdio", "sse"],
+        default=os.getenv("MCP_TRANSPORT", "streamable-http"),
+        help="传输方式，默认 streamable-http，与 mcphub 对接",
     )
-    parser.add_argument(
-        "--host",
-        default=os.getenv("MCP_HOST", "0.0.0.0"),
-        help="HTTP/SSE 监听地址，容器内必须 0.0.0.0",
-    )
-    parser.add_argument(
-        "--port",
-        type=int,
-        default=int(os.getenv("MCP_PORT", "8000")),
-        help="HTTP/SSE 监听端口",
-    )
+    # host/port 通过环境变量 MCP_HOST/MCP_PORT 在 server.py 初始化时传给 FastMCP
+    # 这里保留 --host/--port 参数仅为兼容，实际生效需重启（run() 不接受这些参数）
+    parser.add_argument("--host", default=os.getenv("MCP_HOST", "0.0.0.0"), help="HTTP 监听地址（通过环境变量 MCP_HOST 生效）")
+    parser.add_argument("--port", type=int, default=int(os.getenv("MCP_PORT", "8000")), help="HTTP 监听端口（通过环境变量 MCP_PORT 生效）")
     args = parser.parse_args()
 
     s = get_settings()
@@ -66,18 +59,12 @@ def main() -> None:
         sys.exit(2)
 
     log.info(
-        "启动 1Panel MCP server: transport=%s endpoint=%s readonly=%s",
-        args.transport,
-        s.panel_endpoint,
-        s.panel_readonly,
+        "启动 1Panel MCP server: transport=%s host=%s port=%s endpoint=%s readonly=%s",
+        args.transport, args.host, args.port, s.panel_endpoint, s.panel_readonly,
     )
 
-    if args.transport == "stdio":
-        mcp.run(transport="stdio")
-    else:
-        # streamable-http 用 "http"；sse 向后兼容
-        mcp.run(transport="sse" if args.transport == "sse" else "http",
-                host=args.host, port=args.port)
+    # FastMCP.run() 只接受 transport 参数；host/port 在 FastMCP 初始化时已从环境变量读取
+    mcp.run(transport=args.transport)
 
 
 if __name__ == "__main__":

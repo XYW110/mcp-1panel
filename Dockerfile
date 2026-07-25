@@ -41,5 +41,5 @@ HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
 
 EXPOSE 8000
 
-# 直接运行 entry point
-CMD ["mcp-1panel", "--transport", "http", "--host", "0.0.0.0", "--port", "8000"]
+# 直接运行 entry point（transport=streamable-http；host/port 由环境变量控制）
+CMD ["mcp-1panel", "--transport", "streamable-http"]
