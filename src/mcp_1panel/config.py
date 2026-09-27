@@ -5,6 +5,8 @@
     PANEL_API_KEY    1Panel「设置 → API 接口」里的密钥
     PANEL_TIMEOUT    请求超时秒数，默认 30
     PANEL_READONLY   "true" 时全局只读，写操作直接拒绝（Phase 5 启用）
+    PANEL_MODULES    逗号分隔的启用模块列表（如 container,dashboard,monitor），空=注册全部。
+                     未注册的模块既不会出现在 tools/list，也无法被 tools/call 调用。
 
     MCP_TRANSPORT    传输方式，默认 http（streamable-http），可选 stdio/sse（本地调试）
     MCP_HOST         HTTP 监听地址，容器内必须 0.0.0.0，默认 0.0.0.0
@@ -33,6 +35,12 @@ class Settings(BaseSettings):
     panel_api_key: str = Field(default="", description="1Panel API 密钥")
     panel_timeout: float = Field(default=30.0, description="请求超时秒数")
     panel_readonly: bool = Field(default=False, description="只读模式，拒绝写操作")
+
+    # 工具裁剪：全量 543 个工具的 schema 约 24 万 token，客户端按需启用模块
+    panel_modules: str = Field(
+        default="",
+        description="逗号分隔的启用模块列表（dashboard/monitor/system/container/app/...），空=注册全部",
+    )
 
     # MCP 传输
     mcp_transport: str = Field(default="http", description="传输方式: http/stdio/sse")

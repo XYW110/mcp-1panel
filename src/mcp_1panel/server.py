@@ -47,12 +47,14 @@ mcp: FastMCP = FastMCP(
 def register_all(server: FastMCP) -> None:
     """遍历注册所有业务模块的工具。
 
-    采用显式 import + register 列表，而非动态扫描，原因：
+    采用显式 import + register 字典，而非动态扫描，原因：
     1. 静态可读，新增模块时一眼能看到要加哪行
     2. 避免 import 顺序 / 循环依赖的动态坑
-    3. 便于按需注释某模块做调试
+    3. 支持 PANEL_MODULES 按模块裁剪：全量 543 个工具的 schema 约 24 万 token，
+       客户端可只启用所需模块；未注册的模块既不出现在 tools/list，也无法被调用
     """
     # 延迟 import 避免模块加载时副作用
+    from .config import get_settings
     from .tools import (
         ai,
         app,
@@ -74,38 +76,52 @@ def register_all(server: FastMCP) -> None:
     )
     from .tools import combos
 
-    # 显式注册顺序：按模块语义分组，读多写少的常用模块在前
-    registers: list[Callable[[FastMCP], None]] = [
+    # 显式注册顺序：按模块语义分组，读多写少的常用模块在前（dict 保持插入序）
+    module_registers: dict[str, Callable[[FastMCP], None]] = {
         # 监控与系统
-        dashboard.register,
-        monitor.register,
-        system.register,
+        "dashboard": dashboard.register,
+        "monitor": monitor.register,
+        "system": system.register,
         # 容器与应用
-        container.register,
-        app.register,
-        openresty.register,
+        "container": container.register,
+        "app": app.register,
+        "openresty": openresty.register,
         # 网站 + 运行时（website 含部分 runtime，runtime 补齐其余）
-        website.register,
-        runtime.register,
+        "website": website.register,
+        "runtime": runtime.register,
         # 数据库与文件
-        database.register,
-        file.register,
+        "database": database.register,
+        "file": file.register,
         # 备份恢复
-        backup.register,
+        "backup": backup.register,
         # 安全（防火墙、Clam、Fail2ban、FTP）
-        firewall.register,
-        security.register,
+        "firewall": firewall.register,
+        "security": security.register,
         # 主机运维
-        host.register,
-        cronjob.register,
+        "host": host.register,
+        "cronjob": cronjob.register,
         # AI
-        ai.register,
+        "ai": ai.register,
         # 杂项（脚本库、任务日志、菜单设置）
-        misc.register,
+        "misc": misc.register,
         # 组合便捷接口（聚合原子工具，封装业务流程）
-        combos.register_all,
-    ]
-    for reg in registers:
+        "combos": combos.register_all,
+    }
+
+    enabled = {
+        m.strip() for m in get_settings().panel_modules.split(",") if m.strip()
+    }
+    if enabled:
+        unknown = enabled - module_registers.keys()
+        if unknown:
+            raise ValueError(
+                f"PANEL_MODULES 含未知模块: {sorted(unknown)}；可选: {sorted(module_registers)}"
+            )
+        module_registers = {
+            k: v for k, v in module_registers.items() if k in enabled
+        }
+
+    for reg in module_registers.values():
         reg(server)
 
 
