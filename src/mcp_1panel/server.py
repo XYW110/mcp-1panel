@@ -124,6 +124,29 @@ def register_all(server: FastMCP) -> None:
     for reg in module_registers.values():
         reg(server)
 
+    # PANEL_TOOLS 精确裁剪（fork 增强）：在模块过滤之上再按工具名白名单收窄，
+    # 支持 exact 名与 fnmatch 通配（如 dashboard_*）。直接裁剪 ToolManager._tools
+    # 字典——list_tools 与 call_tool/get_tool 都读它，裁掉的工具两侧同时失效。
+    tool_allowlist = {
+        t.strip() for t in get_settings().panel_tools.split(",") if t.strip()
+    }
+    if tool_allowlist:
+        import fnmatch
+
+        tool_manager = getattr(server, "_tool_manager", None)
+        registered = getattr(tool_manager, "_tools", None)
+        if not isinstance(registered, dict):
+            raise RuntimeError(
+                "FastMCP 内部结构已变化（缺 _tool_manager._tools），PANEL_TOOLS 裁剪不可用"
+            )
+        kept = {
+            name: tool
+            for name, tool in registered.items()
+            if any(fnmatch.fnmatchcase(name, pat) for pat in tool_allowlist)
+        }
+        registered.clear()
+        registered.update(kept)
+
 
 # 默认注册（兼容 `from mcp_1panel.server import mcp` 直接用）
 register_all(mcp)

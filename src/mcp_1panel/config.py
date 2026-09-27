@@ -7,6 +7,8 @@
     PANEL_READONLY   "true" 时全局只读，写操作直接拒绝（Phase 5 启用）
     PANEL_MODULES    逗号分隔的启用模块列表（如 container,dashboard,monitor），空=注册全部。
                      未注册的模块既不会出现在 tools/list，也无法被 tools/call 调用。
+    PANEL_TOOLS      工具白名单（逗号分隔，支持 fnmatch 通配如 dashboard_*），
+                     在 PANEL_MODULES 之上进一步裁剪，空=不过滤。
 
     MCP_TRANSPORT    传输方式，默认 http（streamable-http），可选 stdio/sse（本地调试）
     MCP_HOST         HTTP 监听地址，容器内必须 0.0.0.0，默认 0.0.0.0
@@ -40,6 +42,10 @@ class Settings(BaseSettings):
     panel_modules: str = Field(
         default="",
         description="逗号分隔的启用模块列表（dashboard/monitor/system/container/app/...），空=注册全部",
+    )
+    panel_tools: str = Field(
+        default="",
+        description="逗号分隔的工具白名单（支持 fnmatch 通配如 dashboard_*），在 PANEL_MODULES 之上进一步裁剪，空=不过滤",
     )
 
     # MCP 传输
