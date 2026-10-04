@@ -52,6 +52,7 @@ include = ["src", "README.md", "references"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"      # async 测试零样板
 testpaths = ["tests"]
+pythonpath = ["src"]       # src 布局：确保测的是仓库源码而非已安装副本
 addopts = "-ra"
 
 [tool.ruff]
