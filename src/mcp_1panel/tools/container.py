@@ -14,6 +14,7 @@ Container Volume / Container Compose 等 tag，约 60 个端点）。
 
 from __future__ import annotations
 
+import re
 from typing import Annotated, Literal, Optional
 
 from mcp.server.fastmcp import FastMCP
@@ -31,8 +32,68 @@ ContainerState = Literal[
 ]
 ContainerOrderBy = Literal["name", "createdAt", "state"]
 
+# 端口号或端口范围（如 80 / 3000-3005）
+_PORT_RE = re.compile(r"^\d+(-\d+)?$")
+
 
 def register(mcp: FastMCP) -> None:
+
+    # ---- 字符串参数 → dto 结构的解析器（create/update 共用）----
+
+    def _parse_port(spec: str) -> dict:
+        """'127.0.0.1:8080:80/udp' / '8080:80' / '80' → PortHelper 结构。"""
+        s = spec.strip()
+        if not s:
+            raise ValueError("端口映射不能为空字符串")
+        protocol = "tcp"
+        if "/" in s:
+            s, proto = s.rsplit("/", 1)
+            protocol = proto.lower()
+            if protocol not in ("tcp", "udp", "sctp"):
+                raise ValueError(f"端口协议非法（支持 tcp/udp/sctp）: {spec}")
+        parts = s.split(":")
+        if len(parts) == 1:
+            host_ip, host_port, container_port = "", "", parts[0]
+        elif len(parts) == 2:
+            host_ip, host_port, container_port = "", parts[0], parts[1]
+        elif len(parts) == 3:
+            host_ip, host_port, container_port = parts
+        else:
+            raise ValueError(
+                f"端口映射格式非法: {spec}，应为 [hostIP:]hostPort:containerPort[/protocol]"
+            )
+        for p in (host_port, container_port):
+            if not _PORT_RE.match(p):
+                raise ValueError(f"端口号非法（应为数字或范围）: {spec}")
+        return {
+            "hostIP": host_ip, "hostPort": host_port,
+            "containerPort": container_port, "protocol": protocol,
+        }
+
+    def _parse_volume(spec: str) -> dict:
+        """'meituan-data:/app/data' / '/opt/x:/app/y:ro' → VolumeHelper 结构。"""
+        s = spec.strip()
+        if not s:
+            raise ValueError("卷挂载不能为空字符串")
+        parts = s.split(":")
+        if len(parts) == 2:
+            source, container_dir, mode = parts[0], parts[1], "rw"
+        elif len(parts) == 3:
+            source, container_dir, mode = parts
+        else:
+            raise ValueError(f"卷挂载格式非法: {spec}，应为 源:容器路径[:rw|ro]")
+        return {
+            "type": "bind" if source.startswith("/") else "volume",
+            "sourceDir": source, "containerDir": container_dir,
+            "mode": mode or "rw", "shared": "",
+        }
+
+    def _parse_extra_host(spec: str) -> dict:
+        """'hostname:192.168.1.1' → ExtraHost 结构。"""
+        host, sep, ip = spec.strip().partition(":")
+        if not sep or not host or not ip:
+            raise ValueError(f"extraHosts 格式非法: {spec}，应为 主机名:IP")
+        return {"hostname": host, "ip": ip}
 
     @mcp.tool()
     async def container_search(
@@ -1203,6 +1264,177 @@ def register(mcp: FastMCP) -> None:
         """
         client = await get_client()
         return await client.post("/containers/info", {"name": name})
+
+    # ---- 容器创建与配置更新（改配置重建）----
+
+    @mcp.tool()
+    async def container_create(
+        name: Annotated[str, Field(description="容器名（唯一）")],
+        image: Annotated[str, Field(description="镜像名（含 tag）")],
+        ports: Annotated[Optional[list[str]], Field(description="端口映射列表，格式 [hostIP:]hostPort:containerPort[/protocol]，如 ['8080:80','127.0.0.1:53:53/udp']")] = None,
+        volumes: Annotated[Optional[list[str]], Field(description="挂载列表，格式 源:容器路径[:rw|ro]，源为卷名（volume）或绝对路径（bind），如 ['mydata:/app/data','/opt/x:/x:ro']")] = None,
+        env: Annotated[Optional[list[str]], Field(description="环境变量列表，KEY=VALUE 格式")] = None,
+        network: Annotated[Optional[str], Field(description="接入的 Docker 网络名，留空用默认 bridge")] = None,
+        restart_policy: Annotated[Literal["no", "always", "unless-stopped", "on-failure"], Field(description="重启策略")] = "no",
+        hostname: Annotated[Optional[str], Field(description="容器主机名")] = None,
+        working_dir: Annotated[Optional[str], Field(description="工作目录")] = None,
+        user: Annotated[Optional[str], Field(description="运行用户")] = None,
+        cmd: Annotated[Optional[list[str]], Field(description="覆盖容器启动命令（argv 列表）")] = None,
+        entrypoint: Annotated[Optional[list[str]], Field(description="覆盖入口点")] = None,
+        labels: Annotated[Optional[list[str]], Field(description="标签列表，key=value")] = None,
+        extra_hosts: Annotated[Optional[list[str]], Field(description="额外 hosts，格式 主机名:IP")] = None,
+        privileged: Annotated[bool, Field(description="特权模式")] = False,
+        auto_remove: Annotated[bool, Field(description="退出后自动删除（--rm）")] = False,
+        publish_all_ports: Annotated[bool, Field(description="暴露镜像声明的全部端口（-P）")] = False,
+        tty: Annotated[bool, Field(description="分配 TTY")] = False,
+        open_stdin: Annotated[bool, Field(description="保持 STDIN 打开（-i）")] = False,
+        force_pull: Annotated[bool, Field(description="创建前强制重新拉取镜像")] = False,
+        memory: Annotated[float, Field(ge=0, description="内存上限，字节（0=不限）")] = 0,
+        nano_cpus: Annotated[float, Field(ge=0, description="CPU 配额，1 核=1e9（0=不限）")] = 0,
+    ) -> dict:
+        """⚠️写操作 [容器] 创建并启动一个新容器。
+
+        对应 POST /containers（dto.ContainerOperate）。本地无该镜像且
+        force_pull=false 时会创建失败，可先 container_image_pull 或开 force_pull=true。
+        创建后用 container_search 确认状态、container_log_search 看启动日志。
+
+        Args:
+            name: 容器名（唯一）。
+            image: 镜像名（含 tag）。
+            ports: 端口映射，[hostIP:]hostPort:containerPort[/protocol]。
+            volumes: 挂载，源:容器路径[:rw|ro]，源为卷名（volume）或绝对路径（bind）。
+            env: 环境变量 KEY=VALUE 列表。
+            network: 网络名，留空使用默认 bridge。
+            restart_policy: no / always / unless-stopped / on-failure。
+            hostname: 容器主机名。
+            working_dir: 工作目录。
+            user: 运行用户。
+            cmd: 启动命令覆盖。
+            entrypoint: 入口点覆盖。
+            labels: 标签 key=value 列表。
+            extra_hosts: 额外 hosts（主机名:IP）。
+            privileged: 特权模式。
+            auto_remove: 退出自动删除。
+            publish_all_ports: 暴露镜像声明的全部端口。
+            tty: 分配 TTY。
+            open_stdin: 保持 STDIN 打开。
+            force_pull: 创建前强制拉取镜像。
+            memory: 内存上限（字节），0 不限。
+            nano_cpus: CPU 配额（1 核 = 1e9），0 不限。
+        """
+        require_write()
+        body: dict = {
+            "name": name, "image": image,
+            "exposedPorts": [_parse_port(p) for p in (ports or [])],
+            "volumes": [_parse_volume(v) for v in (volumes or [])],
+            "env": list(env or []),
+            "labels": list(labels or []),
+            "restartPolicy": restart_policy,
+            "privileged": privileged,
+            "autoRemove": auto_remove,
+            "publishAllPorts": publish_all_ports,
+            "tty": tty,
+            "openStdin": open_stdin,
+            "forcePull": force_pull,
+            "taskID": "",
+        }
+        if network:
+            body["networks"] = [{"network": network, "ipv4": "", "ipv6": ""}]
+        if extra_hosts:
+            body["extraHosts"] = [_parse_extra_host(h) for h in extra_hosts]
+        if hostname:
+            body["hostname"] = hostname
+        if working_dir:
+            body["workingDir"] = working_dir
+        if user:
+            body["user"] = user
+        if cmd:
+            body["cmd"] = list(cmd)
+        if entrypoint:
+            body["entrypoint"] = list(entrypoint)
+        if memory:
+            body["memory"] = memory
+        if nano_cpus:
+            body["nanoCPUs"] = nano_cpus
+        client = await get_client()
+        return await client.post("/containers", body)
+
+    @mcp.tool()
+    async def container_update(
+        name: Annotated[str, Field(description="要更新的容器名")],
+        image: Annotated[Optional[str], Field(description="改成的新镜像（含 tag），留空沿用当前")] = None,
+        env_add: Annotated[Optional[list[str]], Field(description="追加/覆盖的环境变量 KEY=VALUE，同名覆盖旧值")] = None,
+        env_remove: Annotated[Optional[list[str]], Field(description="要删除的环境变量 KEY 列表")] = None,
+        ports: Annotated[Optional[list[str]], Field(description="端口映射整体替换（格式同 container_create），留空沿用当前")] = None,
+        volumes: Annotated[Optional[list[str]], Field(description="挂载整体替换（格式同 container_create），留空沿用当前")] = None,
+        network: Annotated[Optional[str], Field(description="改成的新网络名，留空沿用当前")] = None,
+        restart_policy: Annotated[Optional[Literal["no", "always", "unless-stopped", "on-failure"]], Field(description="重启策略，留空沿用当前")] = None,
+        force_pull: Annotated[Optional[bool], Field(description="更新时是否强制重新拉取镜像")] = None,
+    ) -> dict:
+        """⚠️写操作 [容器] 修改容器配置并重建（等价改配置后的 docker rm -f + run）。
+
+        对应 POST /containers/update。**会删除旧容器并按新配置重建**（短暂停机，
+        卷数据不受影响）。工具自动先读当前配置（POST /containers/info）作为基底，
+        只叠加显式传入的增量字段——未传的端口/卷/网络/环境变量等全部沿用，
+        避免漏传丢配置。典型用途：给运行中的容器增删环境变量、改重启策略、
+        换网络；只换镜像发版请用语义更轻的 container_upgrade。
+
+        Args:
+            name: 容器名。
+            image: 新镜像（含 tag），留空不改。
+            env_add: 追加/覆盖的环境变量 KEY=VALUE。
+            env_remove: 删除的环境变量 KEY 列表。
+            ports: 端口映射整体替换，留空沿用当前。
+            volumes: 挂载整体替换，留空沿用当前。
+            network: 新网络名，留空沿用当前。
+            restart_policy: 重启策略，留空沿用当前。
+            force_pull: 是否强制重新拉取镜像。
+        """
+        require_write()
+        client = await get_client()
+        info = await client.post("/containers/info", {"name": name})
+        if not isinstance(info, dict) or not info.get("name") or not info.get("image"):
+            raise ValueError(
+                f"无法加载容器 {name} 的当前配置（/containers/info 返回异常），"
+                "已取消更新，以免用不完整配置重建容器。"
+            )
+        body: dict = dict(info)  # 当前配置作基底，未显式传入的字段全部沿用
+        if image:
+            body["image"] = image
+        if env_add or env_remove:
+            merged: dict[str, str] = {}
+            for kv in body.get("env") or []:
+                if isinstance(kv, str) and "=" in kv:
+                    k, v = kv.split("=", 1)
+                    merged[k] = v
+            for k in env_remove or []:
+                merged.pop(k, None)
+            for kv in env_add or []:
+                if "=" not in kv:
+                    raise ValueError(f"env_add 必须是 KEY=VALUE 格式: {kv}")
+                k, v = kv.split("=", 1)
+                merged[k] = v
+            body["env"] = [f"{k}={v}" for k, v in merged.items()]
+        if ports is not None:
+            body["exposedPorts"] = [_parse_port(p) for p in ports]
+        if volumes is not None:
+            body["volumes"] = [_parse_volume(v) for v in volumes]
+        if network:
+            current = {
+                n.get("network"): n
+                for n in body.get("networks") or [] if isinstance(n, dict)
+            }
+            prev = current.get(network, {})
+            body["networks"] = [{
+                "network": network,
+                "ipv4": prev.get("ipv4") or "",
+                "ipv6": prev.get("ipv6") or "",
+            }]
+        if restart_policy:
+            body["restartPolicy"] = restart_policy
+        if force_pull is not None:
+            body["forcePull"] = force_pull
+        return await client.post("/containers/update", body)
 
     @mcp.tool()
     async def container_limit() -> dict:

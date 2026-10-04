@@ -61,6 +61,8 @@ async def test_container_tools_registered():
         "container_daemonjson_get", "container_daemonjson_update",
         "container_prune", "container_commit", "container_upgrade",
         "container_info", "container_limit",
+        # ---- 创建与配置更新（2）----
+        "container_create", "container_update",
     }
     missing = expected - names
     assert not missing, f"缺少工具: {missing}"
@@ -354,5 +356,164 @@ async def test_new_write_ops_rejected_in_readonly_mode(monkeypatch):
         assert "只读模式" in str(exc_info.value)
         assert not route.called
 
+    monkeypatch.setenv("PANEL_READONLY", "false")
+    get_settings.cache_clear()
+
+
+# ====================================================================
+# 容器创建 / 配置更新（container_create / container_update）
+# ====================================================================
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_container_create_maps_fields():
+    """container_create 应解析端口/卷/hosts 字符串并映射为 dto.ContainerOperate 字段。"""
+    import json as _json
+    route = respx.post("http://1panel.test/api/v2/containers").respond(
+        json={"code": 200, "message": "", "data": None}
+    )
+    await mcp.call_tool("container_create", {
+        "name": "web", "image": "nginx:1.27",
+        "ports": ["127.0.0.1:8080:80/udp", "443:443"],
+        "volumes": ["mydata:/app/data", "/opt/x:/x:ro"],
+        "env": ["A=1"],
+        "network": "bridge",
+        "restart_policy": "unless-stopped",
+        "extra_hosts": ["db:192.168.1.10"],
+    })
+    sent = _json.loads(route.calls.last.request.content)
+    assert sent["name"] == "web"
+    assert sent["image"] == "nginx:1.27"
+    assert sent["restartPolicy"] == "unless-stopped"
+    assert sent["exposedPorts"] == [
+        {"hostIP": "127.0.0.1", "hostPort": "8080", "containerPort": "80", "protocol": "udp"},
+        {"hostIP": "", "hostPort": "443", "containerPort": "443", "protocol": "tcp"},
+    ]
+    assert sent["volumes"] == [
+        {"type": "volume", "sourceDir": "mydata", "containerDir": "/app/data", "mode": "rw", "shared": ""},
+        {"type": "bind", "sourceDir": "/opt/x", "containerDir": "/x", "mode": "ro", "shared": ""},
+    ]
+    assert sent["env"] == ["A=1"]
+    assert sent["networks"] == [{"network": "bridge", "ipv4": "", "ipv6": ""}]
+    assert sent["extraHosts"] == [{"hostname": "db", "ip": "192.168.1.10"}]
+
+
+@pytest.mark.asyncio
+async def test_container_create_invalid_port_rejected():
+    """端口格式非法应直接报错且不发请求。"""
+    with respx.mock:
+        route = respx.post("http://1panel.test/api/v2/containers")
+        with pytest.raises(Exception):
+            await mcp.call_tool("container_create", {
+                "name": "web", "image": "nginx", "ports": ["abc"],
+            })
+        assert not route.called
+
+
+@pytest.mark.asyncio
+async def test_container_create_rejected_in_readonly_mode(monkeypatch):
+    """只读模式下 container_create 应被拒绝。"""
+    monkeypatch.setenv("PANEL_READONLY", "true")
+    get_settings.cache_clear()
+    with respx.mock:
+        route = respx.post("http://1panel.test/api/v2/containers")
+        with pytest.raises(Exception) as exc_info:
+            await mcp.call_tool("container_create", {"name": "web", "image": "nginx"})
+        assert "只读模式" in str(exc_info.value)
+        assert not route.called
+    monkeypatch.setenv("PANEL_READONLY", "false")
+    get_settings.cache_clear()
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_container_update_merges_with_current_config():
+    """container_update 应以 /containers/info 为基底打增量：改 env 不丢卷/端口。"""
+    import json as _json
+    base = {
+        "name": "meituan-coupon",
+        "image": "dockercom110/meituan-coupon-assistant:latest",
+        "env": ["ACCESS_CODE=old", "B=2"],
+        "exposedPorts": [
+            {"hostIP": "", "hostPort": "3000", "containerPort": "3000", "protocol": "tcp"}
+        ],
+        "volumes": [
+            {"type": "volume", "sourceDir": "meituan-data", "containerDir": "/app/data",
+             "mode": "rw", "shared": ""}
+        ],
+        "restartPolicy": "unless-stopped",
+        "networks": [{"network": "bridge", "ipv4": "", "ipv6": ""}],
+    }
+    respx.post("http://1panel.test/api/v2/containers/info").respond(
+        json={"code": 200, "message": "", "data": base}
+    )
+    update_route = respx.post("http://1panel.test/api/v2/containers/update").respond(
+        json={"code": 200, "message": "", "data": None}
+    )
+    await mcp.call_tool("container_update", {
+        "name": "meituan-coupon",
+        "env_add": ["B=3", "NEW=1"],
+        "env_remove": ["ACCESS_CODE"],
+    })
+    sent = _json.loads(update_route.calls.last.request.content)
+    assert sent["env"] == ["B=3", "NEW=1"]
+    # 未显式传入的配置全部沿用
+    assert sent["image"] == "dockercom110/meituan-coupon-assistant:latest"
+    assert sent["volumes"] == base["volumes"]
+    assert sent["exposedPorts"] == base["exposedPorts"]
+    assert sent["restartPolicy"] == "unless-stopped"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_container_update_replaces_image_and_ports():
+    """container_update 支持换镜像与整体替换端口。"""
+    import json as _json
+    respx.post("http://1panel.test/api/v2/containers/info").respond(
+        json={"code": 200, "message": "", "data": {
+            "name": "web", "image": "nginx:1.25",
+            "exposedPorts": [
+                {"hostIP": "", "hostPort": "80", "containerPort": "80", "protocol": "tcp"}
+            ],
+            "volumes": [], "env": [],
+        }}
+    )
+    update_route = respx.post("http://1panel.test/api/v2/containers/update").respond(
+        json={"code": 200, "message": "", "data": None}
+    )
+    await mcp.call_tool("container_update", {
+        "name": "web", "image": "nginx:1.27", "ports": ["8080:80"],
+    })
+    sent = _json.loads(update_route.calls.last.request.content)
+    assert sent["image"] == "nginx:1.27"
+    assert sent["exposedPorts"] == [
+        {"hostIP": "", "hostPort": "8080", "containerPort": "80", "protocol": "tcp"}
+    ]
+
+
+@pytest.mark.asyncio
+async def test_container_update_aborts_when_info_unavailable():
+    """/containers/info 异常时应放弃更新（不能用不完整配置重建容器）。"""
+    with respx.mock:
+        respx.post("http://1panel.test/api/v2/containers/info").respond(
+            json={"code": 200, "message": "", "data": None}
+        )
+        update_route = respx.post("http://1panel.test/api/v2/containers/update")
+        with pytest.raises(Exception):
+            await mcp.call_tool("container_update", {"name": "ghost", "image": "nginx:2"})
+        assert not update_route.called
+
+
+@pytest.mark.asyncio
+async def test_container_update_rejected_in_readonly_mode(monkeypatch):
+    """只读模式下 container_update 应被拒绝（连 info 都不发）。"""
+    monkeypatch.setenv("PANEL_READONLY", "true")
+    get_settings.cache_clear()
+    with respx.mock:
+        info_route = respx.post("http://1panel.test/api/v2/containers/info")
+        with pytest.raises(Exception) as exc_info:
+            await mcp.call_tool("container_update", {"name": "web"})
+        assert "只读模式" in str(exc_info.value)
+        assert not info_route.called
     monkeypatch.setenv("PANEL_READONLY", "false")
     get_settings.cache_clear()
