@@ -34,11 +34,11 @@
 
 ## Acceptance Criteria
 
-- [ ] `pytest tests/` 全量全绿（提交前质量门禁）
-- [ ] 代码改动按功能流分成独立 commit（container / file / 测试配置 / docs）
-- [ ] 基建目录入库前检查无敏感信息、无本机绝对路径
-- [ ] 提交信息沿用仓库惯例（`feat:`/`fix:`/`docs:`/`chore:`，中文摘要）
-- [ ] 整理后 `git status` 干净（除新增的任务工件）
+- [x] `pytest tests/` 全量全绿（提交前质量门禁）——242 passed in 8m（.venv 新建，含 dev extras）
+- [x] 代码改动按功能流分成独立 commit——feat(container) / feat(file) / fix(test) / docs(README) / docs(runbook) 共 5 个
+- [x] 基建目录入库前检查无敏感信息、无本机绝对路径——grep 扫描通过
+- [x] 提交信息沿用仓库惯例（`feat:`/`fix:`/`docs:`/`chore:`，中文摘要）
+- [x] 整理后 `git status` 干净
 
 ## Notes
 
