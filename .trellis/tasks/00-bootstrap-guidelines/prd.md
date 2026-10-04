@@ -21,8 +21,8 @@ the rest conversationally.
 
 ## Status (update the checkboxes as you complete each item)
 
-- [ ] Fill backend guidelines
-- [ ] Add code examples
+- [x] Fill backend guidelines（2026-10-04 填充，来源：AGENTS.md + 代码现实）
+- [x] Add code examples（真实文件引用：tools/container.py 范式、file_upload、server.py register_all）
 
 ---
 
