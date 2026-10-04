@@ -43,3 +43,29 @@
 ### Next Steps
 
 - bootstrap 已归档，后续新开发者走 00-join 入职任务；部署侧若要用 container/file 新工具需 force-reinstall wheel
+
+
+## Session 2: AGENTS.md 去旧机器路径；11 commit 推送 origin/master
+<!-- trellis-session: v=2 fp=e41bb1888271ca47 -->
+
+**Date**: 2026-10-04
+**Task**: AGENTS.md 去旧机器路径；11 commit 推送 origin/master
+**Branch**: `master`
+
+### Summary
+
+AGENTS.md 测试命令与 openapi.json 路径改为仓库根目录相对路径（去除 wgyag 旧机器绝对路径）；推送前对 docs/ 与 .trellis/workspace/ 复查无 IP/密钥，随后 master 领先 11 commit 全量推送 origin。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `b8442b9` | docs(agents): 去除旧机器绝对路径，测试命令改为仓库根目录 + .venv |
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 无挂起事项；后续发版走 tag vX.Y.Z-fork.N → CI wheel Release

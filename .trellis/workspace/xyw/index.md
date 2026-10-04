@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 1
+- **Total Sessions**: 2
 - **Last Active**: 2026-10-04
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~45 | Active |
+| `journal-1.md` | ~71 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 2 | 2026-10-04 | AGENTS.md 去旧机器路径；11 commit 推送 origin/master | `b8442b9` | `master` |
 | 1 | 2026-10-04 | Trellis 工作流整理项目：分组提交积压改动 + spec 填充 + 任务归档 | `4e93b9e`, `5d79670`, `0280bc8`, `f390c5f`, `ccb465e`, `2f80f17`, `e3d62bd`, `3ce4f09`, `76bea48` | `master` |
 <!-- @@@/auto:session-history -->
 
