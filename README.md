@@ -8,8 +8,9 @@
 
 ## 特性
 
-- **全功能覆盖**：手写实现 **490+ 个 MCP 工具**，覆盖 1Panel openapi.json 的核心运维场景
+- **全功能覆盖**：手写实现 **546 个 MCP 工具**，覆盖 1Panel openapi.json 的核心运维场景
 - **模块化分组**：工具按 `<模块>_<动作>` 命名（`container_search`/`website_create`/`database_mysql_list`），便于 mcphub Smart Routing 向量搜索召回
+- **按需裁剪（fork 增强）**：`PANEL_MODULES` 模块级 + `PANEL_TOOLS` 工具级（fnmatch 通配）两级白名单——全量工具 schema 约 24 万 token，客户端可只暴露所需子集，未注册的工具 list/call 双向不可见
 - **streamable-http 传输**：MCP 官方新标准，容器化部署友好，service 名直连
 - **读写安全分层**：读操作无限制；写操作受 `PANEL_READONLY` 控制；高危操作（delete/remove）强制 `confirm` 参数
 - **mcphub 集成**：开箱即用的 docker-compose（mcphub + onepanel-mcp + postgres），启用 pgvector 向量搜索
@@ -18,22 +19,24 @@
 
 | 模块 | 工具数 | 说明 |
 |---|---|---|
-| website | 92 | 网站/域名/SSL/HTTPS/Nginx/Acme/CA/DNS/PHP |
+| website | 101 | 网站/域名/SSL/HTTPS/Nginx/Acme/CA/DNS/PHP |
 | system | 52 | 面板设置/快照/升级/SSL/密码/MFA/SSH |
 | database | 42 | MySQL/PostgreSQL/Redis 库管理与权限 |
-| container | 14+ | 容器/镜像/网络/卷/Compose（持续补齐中） |
-| file | 36 | 文件浏览/编辑/压缩/权限/回收站 |
+| container | 55 | 容器 CRUD/改配置重建/升级/镜像/网络/卷/Compose/模板 |
+| file | 37 | 文件浏览/编辑/上传/压缩/权限/回收站 |
 | app | 33 | 应用商店/安装/升级/参数 |
 | ai | 33 | Ollama 模型/Agent/账户/渠道 |
-| runtime | 28 | PHP/Node/Java/Go/Python/.NET 运行时 |
+| runtime | 19 | PHP/Node/Java/Go/Python/.NET 运行时 |
 | backup | 25 | 备份账号(S3/OSS/MinIO...)/备份/恢复 |
 | cronjob | 16 | 计划任务 CRUD/执行记录 |
 | firewall | 15 | ufw 规则/端口/IP/转发 |
-| openresty | 10 | OpenResty/Nginx 配置/模块 |
+| openresty | 14 | OpenResty/Nginx 配置/模块 |
 | dashboard | 12 | 概览/资源/进程 Top |
 | monitor | 10 | CPU/内存/IO/网络/GPU 监控历史 |
 | security | 27 | Clam 病毒扫描/Fail2ban/FTP |
-| host | 43 | 进程/SSH/磁盘/日志/命令片段 |
+| host | 43 | 进程/SSH/磁盘/日志/命令片段（含高危 host_command_run） |
+| misc | 8 | 脚本库/任务日志/菜单设置 |
+| combos | 4 | 组合便捷接口（容器运维/网站部署聚合流程） |
 
 ## 快速开始
 
@@ -110,6 +113,8 @@ python -m mcp_1panel --transport stdio
 | `PANEL_API_KEY` | ✅ | - | 面板「设置 → API 接口」的 API Key |
 | `PANEL_TIMEOUT` | | `30` | 请求超时秒数 |
 | `PANEL_READONLY` | | `false` | 只读模式，拒绝所有写操作 |
+| `PANEL_MODULES` | | 空=全部 | 启用模块列表（逗号分隔，如 `container,dashboard,monitor,file`），未列出的模块不注册 |
+| `PANEL_TOOLS` | | 空=不过滤 | 工具白名单（逗号分隔，支持 fnmatch 通配如 `file_*`），在 PANEL_MODULES 之上进一步裁剪 |
 | `MCP_TRANSPORT` | | `http` | 传输方式：`http`/`stdio`/`sse` |
 | `MCP_HOST` | | `0.0.0.0` | HTTP 监听地址（容器内必须 0.0.0.0） |
 | `MCP_PORT` | | `8000` | HTTP 监听端口 |
