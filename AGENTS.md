@@ -90,15 +90,14 @@ await client.search(path, filters={...}, page=1)  # search 类，自动注入分
 - 至少 1 个写工具安全校验（confirm / readonly）
 - 用 `from .helpers import parse_tool_result` 解包返回值
 
-测试用 respx mock，**不打真实 1Panel**。运行：
+测试用 respx mock，**不打真实 1Panel**。运行（在仓库根目录）：
 ```bash
-cd C:\Users\wgyag\ZCodeProject\mcp-1panel
 .venv/Scripts/python.exe -m pytest tests/test_tools_<module>.py -v
 ```
 
 ## 8. 接口来源
 
-权威数据源：`C:\Users\wgyag\ZCodeProject\mcp-1panel\references\openapi.json`（Swagger 2.0，basePath /api/v2）。
+权威数据源：`references/openapi.json`（仓库根目录相对路径；Swagger 2.0，basePath /api/v2）。
 
 查接口：
 ```bash
