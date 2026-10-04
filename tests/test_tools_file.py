@@ -30,10 +30,11 @@ async def test_file_tools_registered():
         "file_convert_log", "file_upload_search", "file_recycle_list",
         "file_recycle_status",
         # 写
-        "file_create", "file_save", "file_move", "file_copy", "file_rename",
-        "file_compress", "file_decompress", "file_chmod", "file_chown",
-        "file_batch_chmod", "file_wget", "file_favorite", "file_favorite_delete",
-        "file_remark", "file_convert", "file_recycle_restore",
+        "file_create", "file_save", "file_upload", "file_move", "file_copy",
+        "file_rename", "file_compress", "file_decompress", "file_chmod",
+        "file_chown", "file_batch_chmod", "file_wget", "file_favorite",
+        "file_favorite_delete", "file_remark", "file_convert",
+        "file_recycle_restore",
         # 高危
         "file_delete", "file_batch_delete", "file_recycle_clear",
     }
@@ -149,6 +150,38 @@ async def test_file_recycle_restore_maps_from_underscore():
     body = _json.loads(route.calls.last.request.content)
     assert body["from"] == "/opt"
     assert body["rName"] == "1234-file"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_file_upload_multipart(tmp_path):
+    """file_upload 应以 multipart/form-data 调 POST /files/upload（file+path+overwrite）。"""
+    local = tmp_path / "hello.txt"
+    local.write_bytes(b"hello upload")
+    route = respx.post("http://1panel.test/api/v2/files/upload").respond(
+        json={"code": 200, "message": "", "data": None}
+    )
+    await mcp.call_tool("file_upload", {
+        "local_path": str(local), "remote_dir": "/opt/target",
+    })
+    assert route.called
+    body = route.calls.last.request.content
+    assert b'name="file"' in body
+    assert b"hello upload" in body
+    assert b"/opt/target" in body
+
+
+@pytest.mark.asyncio
+async def test_file_upload_missing_local_file_rejected():
+    """本地文件不存在时 file_upload 应报错且不发请求。"""
+    with respx.mock:
+        route = respx.post("http://1panel.test/api/v2/files/upload")
+        with pytest.raises(Exception):
+            await mcp.call_tool("file_upload", {
+                "local_path": "Z:/definitely/not/exists.bin",
+                "remote_dir": "/opt/target",
+            })
+        assert not route.called
 
 
 # ---- 写工具安全校验：高危 confirm 拦截 ----

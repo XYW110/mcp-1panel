@@ -157,6 +157,38 @@ class PanelClient:
         except httpx.RequestError as e:
             raise PanelTransportError(f"请求 1Panel 失败: {e}") from e
 
+        return self._unwrap(resp)
+
+    async def post_multipart(
+        self,
+        path: str,
+        *,
+        files: Mapping[str, Any],
+        data: Mapping[str, Any] | None = None,
+        headers: Mapping[str, str] | None = None,
+    ) -> Any:
+        """发送 multipart/form-data 签名请求（文件上传专用）并返回 data 字段。
+
+        Args:
+            path: 接口路径，如 "/files/upload"（不含 /api/v2 前缀）
+            files: httpx multipart 字段，如
+                   {"file": ("a.zip", content_bytes, "application/octet-stream")}
+            data: 附加表单字段，如 {"path": "/opt/target_dir", "overwrite": "true"}
+            headers: 额外 header（会与签名 header 合并）
+        """
+        client = await self._ensure_client()
+        req_headers = {**self._headers(), **(headers or {})}
+
+        try:
+            resp = await client.post(path, files=files, data=data, headers=req_headers)
+        except httpx.RequestError as e:
+            raise PanelTransportError(f"请求 1Panel 失败: {e}") from e
+
+        return self._unwrap(resp)
+
+    @staticmethod
+    def _unwrap(resp: httpx.Response) -> Any:
+        """校验 HTTP 状态 + 1Panel 业务码，返回 data 字段。"""
         # HTTP 层错误
         if resp.status_code >= 500:
             raise PanelTransportError(f"1Panel 服务端错误 {resp.status_code}: {resp.text[:200]}")

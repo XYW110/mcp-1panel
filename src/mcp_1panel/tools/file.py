@@ -12,10 +12,11 @@
           file_dir_size/file_check/file_batch_check/file_mount/file_user_group/
           file_favorite_list/file_remarks/file_convert_log/file_upload_search/
           file_recycle_list/file_recycle_status
-- 写操作（require_write）：file_create/file_save/file_move/file_copy/file_rename/
-                          file_compress/file_decompress/file_chmod/file_batch_chmod/
-                          file_chown/file_wget/file_favorite/file_favorite_delete/
-                          file_remark/file_convert/file_recycle_restore
+- 写操作（require_write）：file_create/file_save/file_upload/file_move/file_copy/
+                          file_rename/file_compress/file_decompress/file_chmod/
+                          file_batch_chmod/file_chown/file_wget/file_favorite/
+                          file_favorite_delete/file_remark/file_convert/
+                          file_recycle_restore
 - 高危（confirm）：file_delete/file_batch_delete/file_recycle_clear（不可恢复）
 
 接口来源：references/openapi.json 的 /files/* 路径，basePath /api/v2。
@@ -23,6 +24,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Annotated, Literal
 
 from mcp.server.fastmcp import FastMCP
@@ -56,13 +58,17 @@ def register(mcp: FastMCP) -> None:
         sort_order: Annotated[FileSortOrder, Field(description="排序方向")] = "",
         show_hidden: Annotated[bool, Field(description="是否显示隐藏文件（.开头）")] = False,
         contain_sub: Annotated[bool, Field(description="search 时是否递归子目录匹配")] = False,
-        expand: Annotated[bool, Field(description="是否展开（含目录统计等附加信息）")] = False,
+        expand: Annotated[bool, Field(description="必须为 true 才返回 items 条目，false 时只返回目录元信息（1Panel 行为）")] = True,
         is_detail: Annotated[bool, Field(description="是否返回详情（含 mode/user/group 等）")] = False,
+        dir_only: Annotated[bool, Field(description="true=只列子目录；false=列出文件+目录（验证文件是否存在必须用 false）")] = False,
     ) -> dict:
         """[文件] 列出目录下的文件/子目录（文件管理器主接口）。读操作。
 
         1Panel 文件浏览的核心分页接口，对应 POST /files/search。
         返回该目录下的文件列表（名称、大小、修改时间、类型、权限等）。
+
+        注意（实测 1Panel v2 行为）：expand=false 时接口不返回任何 items；
+        dir=true 只返回子目录、会隐藏普通文件。默认 expand=true + dir=false。
 
         Args:
             path: 目录绝对路径。
@@ -73,8 +79,9 @@ def register(mcp: FastMCP) -> None:
             sort_order: 排序方向，留空用 1Panel 默认。
             show_hidden: 是否显示隐藏文件。
             contain_sub: 搜索时是否递归子目录。
-            expand: 是否展开附加信息。
+            expand: 是否返回 items 条目（false 只返回目录自身元信息）。
             is_detail: 是否返回详情字段。
+            dir_only: 是否只列子目录。
         """
         client = await get_client()
         body = {
@@ -88,7 +95,7 @@ def register(mcp: FastMCP) -> None:
             "containSub": contain_sub,
             "expand": expand,
             "isDetail": is_detail,
-            "dir": True,
+            "dir": dir_only,
         }
         return await client.post("/files/search", body)
 
@@ -339,6 +346,40 @@ def register(mcp: FastMCP) -> None:
             "page": page,
             "pageSize": page_size,
         })
+
+    # ============ 写：上传 ============
+
+    @mcp.tool()
+    async def file_upload(
+        local_path: Annotated[str, Field(description="MCP 所在机器上的本地文件绝对路径")],
+        remote_dir: Annotated[str, Field(description="服务器目标目录绝对路径（不存在会自动创建）")],
+        remote_name: Annotated[str, Field(description="保存到服务器的文件名，留空用本地文件名")] = "",
+        overwrite: Annotated[bool, Field(description="同名文件已存在时是否覆盖")] = True,
+    ) -> dict:
+        """⚠️写操作 [文件] 上传本地文件到 1Panel 服务器。
+
+        对应 POST /files/upload（multipart/form-data：file + path + overwrite）。
+        常与 file_decompress 组合：先上传压缩包再解压部署。
+        大文件（>100MB）建议先压缩分卷，或改走 /files/chunkupload 分块上传。
+
+        Args:
+            local_path: 本地文件绝对路径。
+            remote_dir: 服务器目标目录绝对路径。
+            remote_name: 服务器端文件名，留空沿用本地文件名。
+            overwrite: 是否覆盖同名文件。
+        """
+        require_write()
+        p = Path(local_path)
+        if not p.is_file():
+            raise ValueError(f"本地文件不存在: {local_path}")
+        client = await get_client()
+        name = remote_name or p.name
+        content = p.read_bytes()
+        return await client.post_multipart(
+            "/files/upload",
+            files={"file": (name, content, "application/octet-stream")},
+            data={"path": remote_dir, "overwrite": str(overwrite).lower()},
+        )
 
     # ============ 读：回收站 ============
 
@@ -880,14 +921,12 @@ def register(mcp: FastMCP) -> None:
         client = await get_client()
         return await client.post("/files/recycle/clear")
 
-    # ============ 上传 / 下载（multipart，需要 client 扩展，暂留 TODO） ============
+    # ============ 上传 / 下载（二进制流端点） ============
     #
-    # /files/download        GET，无 body，返回文件流（二进制下载）
-    # /files/chunkdownload   POST application/json（request.FileDownload），分块下载元信息
-    # /files/upload          POST multipart/form-data（formData: file）
-    # /files/chunkupload     POST multipart/form-data（formData: file），分块上传
+    # /files/upload          ✅ 已实现为 file_upload（client.post_multipart）
+    # /files/chunkupload     ❌ 分块上传（filename/path/chunk/chunkIndex/chunkCount），
+    #                        大文件场景再实现
+    # /files/download        ❌ GET 返回文件流（需流式响应处理）
+    # /files/chunkdownload   ❌ 分块下载元信息（需流式响应处理）
     #
-    # 这 4 个端点涉及二进制流 / multipart，当前 PanelClient 只支持 JSON body 与
-    # URL params。完整支持需要扩展 client（加 files/content 参数 + 流式响应处理），
-    # 此处暂不实现，避免半成品。file_upload_search 已覆盖上传任务历史查询；
-    # file_wget 已覆盖「服务端拉取文件」场景。
+    # 上传任务历史查询由 file_upload_search 覆盖；「服务端拉取文件」由 file_wget 覆盖。
